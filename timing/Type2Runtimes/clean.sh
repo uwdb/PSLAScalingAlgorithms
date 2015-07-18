@@ -1,0 +1,22 @@
+sed -i "" 's/10,//g' *
+sed -i "" 's/11,//g' *
+sed -i "" 's/12,//g' *
+sed -i "" 's/13,//g' *
+sed -i "" 's/14,//g' *
+sed -i "" 's/15,//g' *
+sed -i "" 's/16,//g' *
+sed -i "" 's/17,//g' *
+sed -i "" 's/18,//g' *
+sed -i "" 's/19,//g' *
+sed -i "" 's/20,//g' *
+
+sed -i "" 's/1,//g' *
+sed -i "" 's/2,//g' *
+sed -i "" 's/3,//g' *
+sed -i "" 's/4,//g' *
+sed -i "" 's/5,//g' *
+sed -i "" 's/6,//g' *
+sed -i "" 's/7,//g' *
+sed -i "" 's/8,//g' *
+sed -i "" 's/9,//g' *
+sed -i "" 's/0,//g' *
