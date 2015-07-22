@@ -28,7 +28,7 @@ public class FileReaderUtils {
 		// TODO: Read actual data from output of PSLA engine
 		Workload W = new Workload(name);
 
-		JsonObject workloadJSON = readJSON("/Users/jortiz16/Documents/myriascalabilityengine/pslaData/FinalQueries.json");
+		JsonObject workloadJSON = readJSON("./pslaData/FinalQueries.json");
 		String workerCountAsString = String.valueOf(workerCount);
 
 		try {
@@ -43,7 +43,7 @@ public class FileReaderUtils {
 						JsonObject query = queries.get(j).getAsJsonObject();
 
 						// Now grab each query json
-						String queryJSONPath = "/Users/jortiz16/Documents/myriascalabilityengine/queries/" 
+						String queryJSONPath = "./queries/" 
 								+ workerCountAsString
 								+ "/json"
 								+ String.valueOf(j)
@@ -74,7 +74,7 @@ public class FileReaderUtils {
 				String workerCountAsString = String.valueOf(workerCount);
 				String queryNumberAsString = String.valueOf(j);
 
-				String queryJSONPath = "/Users/jortiz16/Documents/myriascalabilityengine/sampleQueries/Type2/" 
+				String queryJSONPath = "./sampleQueries/Type2/" 
 						+ workerCountAsString
 						+ "/"
 						+ queryNumberAsString
@@ -105,7 +105,7 @@ public class FileReaderUtils {
 
 	public static void updateStarClusterFiles(int maxSize) {
 		String outputFile = "/Users/brendan/.starcluster/myriacluster.config";
-		String inputFile = "/Users/jortiz16/Documents/myriascalabilityengine/starclusterfiles/myriacluster.config";
+		String inputFile = "./starclusterfiles/myriacluster.config";
 
 		Path inputPath = Paths.get(inputFile);
 		Path outputPath = Paths.get(outputFile);

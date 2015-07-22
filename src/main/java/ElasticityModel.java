@@ -203,11 +203,11 @@ class EWMAElasticity implements ElasticityModel {
 	public List<Query> queries = new ArrayList<Query>();
 
 	int queryCount = 0;
-	int windowSize = 5;
+	int windowSize = 1;
 	double Z = 0.0;
 	double lambda = 0.3;
-	double lowerBound = 0.3;
-	double upperBound = 0.6;
+	double lowerBound = 0.5;
+	double upperBound = 0.9;
 	boolean haveHit = false;
 
 	public String getName() {
@@ -215,14 +215,14 @@ class EWMAElasticity implements ElasticityModel {
 	}
 
 	public void addNewDataPoint(Query q) {
-//		if (!haveHit) {
-//			if (q.getExpectedRuntime() > q.getActualRuntime()) {
-//				haveHit = true;
-//				score = 0.0;
-//			} else {
-//				score = 1.0;
-//			}
-//		} else {
+		if (!haveHit) {
+			if (q.getExpectedRuntime() > q.getActualRuntime()) {
+				haveHit = true;
+				score = 0.0;
+			} else {
+				score = 1.0;
+			}
+		} else {
 			queries.add(q);
 			queryCount++;
 
@@ -231,18 +231,18 @@ class EWMAElasticity implements ElasticityModel {
 
 				Z = findZ(queries.size() - 1);
 
-				if (Z < lowerBound) { //scale up
+				if (Z < lowerBound) {
 					score = 1.0;
-				} else if (Z > upperBound) { //scale down
+				} else if (Z > upperBound) {
 					score = -1.0;
 				} else {
 					score = 0.0;
 				}
-			}
-			else {
+
+			} else {
 				score = 0.0;
 			}
-		//}
+		}
 	}
 
 
@@ -281,7 +281,7 @@ class DirectHopElasticity {
 	int queryCount = 0;
 	int windowSize = 1;
 
-	Map<Integer, List<Double>> predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_underestimated_estimated.csv");
+	Map<Integer, List<Double>> predictionMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/PredictedRuntimes.csv");
 	
 	public DirectHopElasticity(Cluster cluster) {
 		this.configs = new ArrayList<Integer>();
@@ -308,8 +308,8 @@ class DirectHopElasticity {
 				Workload estimatedWorkload = new Workload("temp");
 				for (Query query : completedWorkload) {
 					Query estimatedQuery = new Query(query.getJson());
-					//double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
-					double estimatedTime = predictionMap.get(index).get((config - 4) / 2);
+					double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
+					//double estimatedTime = predictionMap.get(index).get((config - 4) / 2);
 					
 					estimatedQuery.setActualRuntime(estimatedTime);
 					estimatedQuery.setExpectedRuntime(query.getExpectedRuntime());

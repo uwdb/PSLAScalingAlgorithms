@@ -2,7 +2,6 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Scanner;
 
 import DataModel.Cluster;
@@ -70,10 +69,8 @@ public class Main {
 					//directHopExperiment();
 					//timingRun();
 					//convergenceTimingTest();
-					//convergenceTimingBATCH();
-					convergenceTimingDirectBATCH();
 					//convergenceTimingTestDirect();
-					//simulatedExperiment();
+					simulatedExperiment();
 					//simulatedExperimentDirect();
 					break;
 				case 8:
@@ -261,7 +258,7 @@ public class Main {
 			writer.println("----------------Timing run----------------");
 			System.out.println("----------------Timing run----------------");
 
-			String queryJSONPath = "/Users/jortiz16/Documents/myriascalabilityengine/queries/4" 
+			String queryJSONPath = "./queries/4" 
 					+ "/json"
 					+ queryNum
 					+ ".json";
@@ -293,7 +290,7 @@ public class Main {
 
 				for (int i = 0; i < sampleSize; i++) {
 					int startingNumWorkers = cluster.getNumWorkersAlive();
-					String currentJsonPath = "/Users/jortiz16/Documents/myriascalabilityengine/queries/"
+					String currentJsonPath = "./queries/"
 							+ String.valueOf(startingNumWorkers)
 							+ "/json"
 							+ String.valueOf(queryNum)
@@ -348,7 +345,7 @@ public class Main {
 			System.out.println("\n-------------Direct Hop--------------");
 			for (int i = 0; i < sampleSize; i++) {
 				int startingNumWorkers = cluster.getNumWorkersAlive();
-				String currentJsonPath = "/Users/jortiz16/Documents/myriascalabilityengine/queries/"
+				String currentJsonPath = "./queries/"
 						+ String.valueOf(startingNumWorkers)
 						+ "/json"
 						+ String.valueOf(queryNum)
@@ -589,7 +586,7 @@ public class Main {
 			AWSClusterUtils.clearCache();
 			Thread.sleep(10000);
 
-			writer = new PrintWriter("/Users/jortiz16/Documents/myriascalabilityengine/runtimes/Type3b/runtimes.csv", "UTF-8");
+			writer = new PrintWriter("./runtimes/Type3b/runtimes.csv", "UTF-8");
 
 			int counter = 0;
 			for (Workload workload : workloads) {
@@ -675,7 +672,7 @@ public class Main {
 			}
 		}
 		
-		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/ActualRuntimes.csv");
+		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/ActualRuntimes.csv");
 
 		for (int i = 0; i < sampleSize; i++) {
 			double underestimatedRuntime = timeMap.get(i).get(0) * underestimate;
@@ -800,7 +797,7 @@ public class Main {
 			}
 		}
 		
-		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/ActualRuntimes.csv");
+		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/ActualRuntimes.csv");
 		
 		for (int i = 0; i < sampleSize; i++) {
 			double underestimatedRuntime = timeMap.get(i).get(0) * underestimate;
@@ -956,7 +953,7 @@ public class Main {
 			}
 		}
 
-		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/JoinQueries.csv");
+		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/JoinQueries.csv");
 
 		for (int i = 0; i < sampleSize; i++) {
 			double runtime = timeMap.get(i).get(0) * underestimate;
@@ -1026,201 +1023,7 @@ public class Main {
 
 		cluster.verbose = true;
 	}
-	
-	//added to run batch of over or underpredicted queries
-	private static void convergenceTimingBATCH() {
-		int batchNumber = 5;
-		boolean scaleDown = true;
-		int clusterSize = 4;
-		
-		double runningTime = 0.0;
 
-		//if we're scaling down, start the cluster at 12 (the max)
-		if (scaleDown) {
-			clusterSize = 12;
-		}
-
-		ArrayList<Workload> workloads = new ArrayList<Workload>();
-
-		workloads.add(new Workload("4 Node"));
-		workloads.add(new Workload("6 Node"));
-		workloads.add(new Workload("8 Node"));
-		workloads.add(new Workload("10 Node"));
-		workloads.add(new Workload("12 Node"));	
-		
-		
-		Map<Integer, List<Double>> timeMap_expected = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/RandomOrder/queries_overestimated_estimated_rand1.csv");
-		Map<Integer, List<Double>> timeMap_actual = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/RandomOrder/queries_overestimated_actual_rand1.csv");
-		
-		int qlistSize = timeMap_actual.size();
-
-		//for each workload add a query
-		for(int j = 0; j < batchNumber; j++){
-		for (int i = 0; i < qlistSize; i++) {
-		for (Workload workload : workloads) {
-				workload.addQuery(new Query(null));
-		}
-		}
-		}
-
-		//for each query found in the map, set the expected time for the smallest config
-		for(int j = 0; j < batchNumber; j++){
-		for (int i = 0; i < qlistSize; i++) {
-			for (Workload workload : workloads) {
-				//int index = (!scaleDown) ? 0 : 4;
-				workload.getQueries().get(i).setExpectedRuntime(timeMap_expected.get(i).get(0) + timeMap_expected.get(i).get(0)*.1);
-			}
-		}
-		}
-
-		int queryNum = 1;
-		ElasticityModel model = new WindowedElasticity();
-		
-		System.out.println("queryNum,expected,actual,workers");
-		
-		//start the model
-		for(int j = 0; j < 5; j++){
-		for (int queryIndex = 0; queryIndex < qlistSize; queryIndex++) {
-			int workloadIndex = (clusterSize - 4) / 2;
-			Query q = workloads.get(workloadIndex).getQueries().get(queryIndex);
-
-			double elapsedRuntime = timeMap_actual.get(queryIndex).get(workloadIndex);
-
-			q.setActualRuntime(elapsedRuntime);
-			runningTime += elapsedRuntime;
-
-			int startingNumWorkers = clusterSize;
-			model.addNewDataPoint(q);
-			if (model.shouldScaleCluster() > 0) {
-				if (clusterSize < cluster.getMaxInstances()) {
-					clusterSize += cluster.getSkipFactor();
-				}
-			} else if (model.shouldScaleCluster() < 0) {
-				if (clusterSize > cluster.getMinInstances()) {
-					clusterSize -= cluster.getSkipFactor();
-				}
-			}
-//			
-//			if(q.getExpectedRuntime() - q.getActualRuntime() < 0)
-//			{
-//				System.out.print("SLOWER,");
-//			}
-
-			System.out.println(String.valueOf(queryNum) + "," + 
-					String.valueOf(q.getExpectedRuntime()) + "," +
-					String.valueOf(elapsedRuntime) + "," +
-					String.valueOf(startingNumWorkers));
-		
-			//System.out.print("Running Time: ");
-			//System.out.println(runningTime);
-
-			queryNum++;
-		}
-		}
-		
-
-		cluster.verbose = true;
-	}
-
-	
-	private static void convergenceTimingDirectBATCH() {
-		int batchNumber = 5;
-		boolean scaleDown = false;
-		int clusterSize = 4;
-		
-		double runningTime = 0.0;
-
-		//if we're scaling down, start the cluster at 12 (the max)
-		if (scaleDown) {
-			clusterSize = 12;
-		}
-
-		ArrayList<Workload> workloads = new ArrayList<Workload>();
-
-		workloads.add(new Workload("4 Node"));
-		workloads.add(new Workload("6 Node"));
-		workloads.add(new Workload("8 Node"));
-		workloads.add(new Workload("10 Node"));
-		workloads.add(new Workload("12 Node"));	
-		
-		
-		Map<Integer, List<Double>> timeMap_expected = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_underestimated_estimated.csv");
-		Map<Integer, List<Double>> timeMap_actual = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_underestimated_actual.csv");
-		
-		
-		int qlistSize = timeMap_actual.size();
-
-		//for each workload add a query
-		for(int j = 0; j < batchNumber; j++){
-		for (int i = 0; i < qlistSize; i++) {
-		for (Workload workload : workloads) {
-				workload.addQuery(new Query(null));
-		}
-		}
-		}
-
-		//for each query found in the map, set the expected time for the smallest config
-		for(int j = 0; j < batchNumber; j++){
-		for (int i = 0; i < qlistSize; i++) {
-			for (Workload workload : workloads) {
-				int index =0;
-				workload.getQueries().get(i).setExpectedRuntime(timeMap_expected.get(i).get(index));
-			}
-		}
-		}
-
-		int queryNum = 1;
-		DirectHopElasticity directModel = new DirectHopElasticity(cluster);
-		
-		System.out.println("queryNum,expected,actual,workers");
-		
-		int totalMissed = 0;
-		
-		//start the model
-		for(int j = 0; j < 100; j++){
-		//for (int queryIndex = 0; queryIndex < qlistSize; queryIndex++) {
-			int workloadIndex = (clusterSize - 4) / 2;
-			
-			Random r = new Random();
-			int queryIndex = r.nextInt(qlistSize);
-			
-			Query q = workloads.get(workloadIndex).getQueries().get(queryIndex);
-
-			double elapsedRuntime = timeMap_actual.get(queryIndex).get(workloadIndex);
-
-			q.setActualRuntime(elapsedRuntime);
-			runningTime += elapsedRuntime;
-
-			int startingNumWorkers = clusterSize;
-			directModel.addNewDataPoint(q, clusterSize, queryIndex);
-			int scaleTo = directModel.scaleTo();
-			clusterSize = scaleTo;
-			
-			if(q.getExpectedRuntime() - q.getActualRuntime() < 0)
-			{
-				totalMissed++;
-			}
-
-			System.out.println(String.valueOf(queryNum) + "," + 
-					String.valueOf(q.getExpectedRuntime()) + "," +
-					String.valueOf(elapsedRuntime) + "," +
-					String.valueOf(startingNumWorkers));
-
-			//System.out.print("Running Time: ");
-			//System.out.println(runningTime);
-
-			queryNum++;
-		//}
-		}
-		
-		System.out.println("Total Missed " + totalMissed);
-		
-
-		cluster.verbose = true;
-	}
-
-	
-	
 	// Does a simulated experiment that helps debug models without
 	// running the actual queries.  Uses pre-timed queries
 	@SuppressWarnings("unused")
@@ -1258,7 +1061,7 @@ public class Main {
 			}
 		}
 
-		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/JoinQueries.csv");
+		Map<Integer, List<Double>> timeMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/JoinQueries.csv");
 
 		for (int i = 0; i < sampleSize; i++) {
 			double runtime = timeMap.get(i).get(0) * underestimate;
