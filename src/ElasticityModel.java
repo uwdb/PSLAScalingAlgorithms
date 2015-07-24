@@ -203,11 +203,11 @@ class EWMAElasticity implements ElasticityModel {
 	public List<Query> queries = new ArrayList<Query>();
 
 	int queryCount = 0;
-	int windowSize = 1;
+	int windowSize = 5;
 	double Z = 0.0;
 	double lambda = 0.3;
-	double lowerBound = 0.5;
-	double upperBound = 0.9;
+	double lowerBound = 0.3;
+	double upperBound = 0.6;
 	boolean haveHit = false;
 
 	public String getName() {
@@ -215,14 +215,14 @@ class EWMAElasticity implements ElasticityModel {
 	}
 
 	public void addNewDataPoint(Query q) {
-		if (!haveHit) {
-			if (q.getExpectedRuntime() > q.getActualRuntime()) {
-				haveHit = true;
-				score = 0.0;
-			} else {
-				score = 1.0;
-			}
-		} else {
+//		if (!haveHit) {
+//			if (q.getExpectedRuntime() > q.getActualRuntime()) {
+//				haveHit = true;
+//				score = 0.0;
+//			} else {
+//				score = 1.0;
+//			}
+//		} else {
 			queries.add(q);
 			queryCount++;
 
@@ -231,18 +231,18 @@ class EWMAElasticity implements ElasticityModel {
 
 				Z = findZ(queries.size() - 1);
 
-				if (Z < lowerBound) {
+				if (Z < lowerBound) { //scale up
 					score = 1.0;
-				} else if (Z > upperBound) {
+				} else if (Z > upperBound) { //scale down
 					score = -1.0;
 				} else {
 					score = 0.0;
 				}
-
-			} else {
+			}
+			else {
 				score = 0.0;
 			}
-		}
+		//}
 	}
 
 
@@ -281,7 +281,7 @@ class DirectHopElasticity {
 	int queryCount = 0;
 	int windowSize = 1;
 
-	Map<Integer, List<Double>> predictionMap = FileReaderUtils.readTimeMap("./timing/LargeToSmall/PredictedRuntimes.csv");
+	
 	
 	public DirectHopElasticity(Cluster cluster) {
 		this.configs = new ArrayList<Integer>();
@@ -295,39 +295,49 @@ class DirectHopElasticity {
 		return "Direct Hop Elasticity";
 	}
 
-	public void addNewDataPoint(Query q, int currentClusterSize, int index) {
+	public void addNewDataPoint(Query q, int currentClusterSize, int queryIndex) {
+		Map<Integer, List<Double>> predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/prediction_results-selected.csv");
 		completedWorkload.add(q);
 		q.setRanOnConfigSize(currentClusterSize);
 		queryCount++;
 
 		if (queryCount == windowSize) {
 
+			System.out.print("\t \t || EWMAs for workload after this query || ");
 			for (Integer config : configs) {
 				scaleTo = config;
 
 				Workload estimatedWorkload = new Workload("temp");
 				for (Query query : completedWorkload) {
 					Query estimatedQuery = new Query(query.getJson());
-					double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
-					//double estimatedTime = predictionMap.get(index).get((config - 4) / 2);
+					//double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
+					double estimatedTime = predictionMap.get(queryIndex).get((config - 4) / 2);
 					
-					estimatedQuery.setActualRuntime(estimatedTime);
+					if(query.getRanOnConfigSize() == config) {
+						estimatedQuery.setActualRuntime(query.getActualRuntime());
+					}
+					else {
+						estimatedQuery.setActualRuntime(estimatedTime);
+					}
+					
 					estimatedQuery.setExpectedRuntime(query.getExpectedRuntime());
 					estimatedWorkload.addQuery(estimatedQuery);
 				}
-
-				if (OptimizationFunction.workloadMeetsRequirements(estimatedWorkload, P)) {
+				
+				System.out.print(config + ": ");
+				if (OptimizationFunction.workloadMeetsRequirements(estimatedWorkload, P, config)) {
 					// We have found the smallest suitable cluster
-					// scaleTo remains set to this value
 					queryCount = 0;
+					System.out.println("");
 					return;
 				}
+				System.out.print(", ");
 			}
-
 			queryCount = 0;
 		} else {
 			scaleTo = currentClusterSize;
 		}
+		System.out.println("");
 		// If we finished the loop, scaleTo is set to the largest possible cluster size
 	}
 
