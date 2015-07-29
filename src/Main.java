@@ -36,7 +36,6 @@ public class Main {
 		originalWorkload = FileReaderUtils.readRandomQueries(startingClusterSize, "Four Node Workload");
 
 		Usage();
-		while (true) {
 			System.out.print("Enter command: ");
 
 			try {
@@ -97,7 +96,7 @@ public class Main {
 				e.printStackTrace();;
 				System.exit(1);
 			}
-		}
+		
 	}
 
 	@SuppressWarnings("unused")
@@ -1137,6 +1136,7 @@ public class Main {
 		boolean scaleDown = false;
 		int clusterSize = 4;
 		boolean usePredictions = true;
+		boolean staticPredictions = false; //undo the cp stuff
 		
 		//file parameters
 		String masterPath = "/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/";
@@ -1167,11 +1167,21 @@ public class Main {
 		FileReader testing_queriesIDsFile = new FileReader( new File(masterPath + "predictions/testing_ids.txt"));
 		BufferedReader testing_queriesIDsBuffer = new BufferedReader(testing_queriesIDsFile);
 		String currentReadID = "";
-		ArrayList<Integer> queryIDs = new ArrayList<Integer>();
+		ArrayList<Integer> queryIDs_all = new ArrayList<Integer>();
 		while((currentReadID=testing_queriesIDsBuffer.readLine())!=null) {
-			queryIDs.add(Integer.valueOf(currentReadID));
+			queryIDs_all.add(Integer.valueOf(currentReadID));
 		}
-	
+		
+		//this last part outputs only the queries I'm working with at the moment
+		ArrayList<Integer> queryIDs_subset = new ArrayList<Integer>();
+		FileReader idFile = new FileReader( new File(masterPath + "queries_" + keyFile + "estimated_estimated.csv"));
+		BufferedReader idFileBuffer = new BufferedReader(idFile);
+		while((currentReadID=idFileBuffer.readLine())!=null)
+		{
+			queryIDs_subset.add(Integer.valueOf(currentReadID.split(",")[0]));
+		}
+		idFileBuffer.close();
+		
 		//for each workload add a query and set the sla time for 4 workers
 		for(int j = 0; j < batchNumber; j++){
 			for (int i = 0; i < qlistSize; i++) {
@@ -1190,7 +1200,7 @@ public class Main {
 		int totalMissed = 0;
 		
 		//only for predictions if used
-		Map<String, Integer> actualCardinalities  = new HashMap<String, Integer>();
+		Map<String, List<Double>> actualCardinalities  = new HashMap<String, List<Double>>();
 		
 		//start the model over the batch of queries
 		for (int queryIndex = 0; queryIndex < qlistSize; queryIndex++) {
@@ -1199,7 +1209,7 @@ public class Main {
 			
 			//get the first query and "run" it
 			Query q = workloads.get(workloadIndex).getQueries().get(queryIndex);
-			q.setQueryID(queryIDs.get(queryIndex));
+			q.setQueryID(queryIDs_subset.get(queryIndex));
 			
 			double elapsedRuntime = timeMap_actual.get(queryIndex).get(workloadIndex);
 			q.setActualRuntime(elapsedRuntime);
@@ -1228,20 +1238,33 @@ public class Main {
 				while((currentLine=actual_cardinalitiesBuffer.readLine())!=null) {
 					String[] currentListSplit = currentLine.split(",");
 					String generatedKey = currentListSplit[0] + "-" + currentListSplit[1];
-					actualCardinalities.put(generatedKey, Integer.valueOf(currentListSplit[2]));
+					List<Double> moreFeatures = new ArrayList<Double>();
+					moreFeatures.add(Double.valueOf(currentListSplit[2]));
+					moreFeatures.add(Double.valueOf(currentListSplit[3]));
+					actualCardinalities.put(generatedKey, moreFeatures);
 				}
+				actual_cardinalitiesBuffer.close();
 				
+			}
+			else
+			{
+				//make a copy
+				Process makeArffCopy = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "cd " + masterPath + "predictions/; cp testing-small-mod.arff testing-small-cp.arff;"});
+				makeArffCopy.waitFor();
 			}
 			PrintWriter newTestArffFile = new PrintWriter(masterPath + "predictions/testing-small-mod.arff", "UTF-8");
 			
 			FileReader currentPredictionsFile = new FileReader( new File(masterPath + "predictions/testing-small-cp.arff"));
+			
 			BufferedReader currentPredictionsBuffer = new BufferedReader(currentPredictionsFile);
 			String currentLine = null;
 			
+			int lineNumber = 0;
 			//read/write the header
 			for(int l = 0 ; l < 13; l++){
 				String beginningLine = currentPredictionsBuffer.readLine();
 				newTestArffFile.write(beginningLine + "\n");
+				lineNumber++;
 			}
 			//read/write the rest of the file
 			while((currentLine=currentPredictionsBuffer.readLine())!=null)
@@ -1249,18 +1272,24 @@ public class Main {
 				String[] currentListSplit = currentLine.split(",");
 				Integer currentQueryID = Integer.valueOf(currentListSplit[0]);
 				Integer currentConfig = Integer.valueOf(currentListSplit[7]);
-				if(currentQueryID == q.getQueryID() && currentConfig == clusterSize){
+				if(currentQueryID == q.getQueryID() && currentConfig == clusterSize && !staticPredictions){
 					for(int i = 0; i< 9; i++){
 						switch(i) {
-							case 4: //actual time
-								newTestArffFile.write(q.getActualRuntime() + ",");
-								break;
-							case 5: //actual rows -- find it in the populated list
-								for(Map.Entry<String, Integer>  entry: actualCardinalities.entrySet()){
+							case 5: //actual time to milliseconds
+								for(Map.Entry<String, List<Double>>  entry: actualCardinalities.entrySet()){
 									String[] parseKey = entry.getKey().split("-");
 
 									if(Integer.valueOf(parseKey[0]).equals(currentQueryID) && Integer.valueOf(parseKey[1]).equals(currentConfig)){
-										newTestArffFile.write(entry.getValue() + ",");
+										newTestArffFile.write(entry.getValue().get(0) + ",");
+									}
+								}
+								break;
+							case 6: //actual rows -- find it in the populated list
+								for(Map.Entry<String, List<Double>>  entry: actualCardinalities.entrySet()){
+									String[] parseKey = entry.getKey().split("-");
+
+									if(Integer.valueOf(parseKey[0]).equals(currentQueryID) && Integer.valueOf(parseKey[1]).equals(currentConfig)){
+										newTestArffFile.write(entry.getValue().get(1) + ",");
 									}
 								}
 								break;
@@ -1275,11 +1304,15 @@ public class Main {
 				{
 					newTestArffFile.write(currentLine + "\n");
 				}
+				lineNumber++;
 			}
 			newTestArffFile.close();
+			currentPredictionsFile.close();
 			
 			//STEP 2: re-run predictions
 			//clear results
+			if(!staticPredictions){
+			
 			Process clearResults = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "> " + masterPath + "predictions/prediction_results.txt"});
 		    clearResults.waitFor();
 		    
@@ -1356,34 +1389,26 @@ public class Main {
 				}
 			}
 			predictionsBuffer.close();
-			
-			//this last part outputs only the queries I'm working with at the moment
-			ArrayList<Integer> idsNeeded = new ArrayList<Integer>();
-			FileReader idFile = new FileReader( new File(masterPath + "queries_" + keyFile + "estimated_estimated.csv"));
-			BufferedReader idFileBuffer = new BufferedReader(idFile);
-			String currentID = null;
-			while((currentLine=idFileBuffer.readLine())!=null)
-			{
-				idsNeeded.add(Integer.valueOf(currentLine.split(",")[0]));
-			}
-			idFileBuffer.close();
+		
 			
 			//arrange the runtimes into a file
 			PrintWriter writePredictionsForModel = new PrintWriter(masterPath + "predictions/prediction_results-selected.csv", "UTF-8");
-			for(int i = 0; i < 100; i++){
-				if(idsNeeded.contains(queryIDs.get(i))){
-					writePredictionsForModel.println(queryIDs.get(i) + "," 
-													+ workersTimes4.get(i) + "," 
-													+  workersTimes6.get(i) + ","  
-													+ workersTimes8.get(i) + ","   
-													+ workersTimes10.get(i) + ","  
-													+ workersTimes12.get(i));
-				}
+			for(int i = 0; i < queryIDs_subset.size(); i++){
+					int currentID = queryIDs_subset.get(i);
+					int i_value = queryIDs_all.indexOf(currentID);
+					
+					writePredictionsForModel.println(queryIDs_all.get(i_value) + "," 
+													+ workersTimes4.get(i_value) + "," 
+													+  workersTimes6.get(i_value) + ","  
+													+ workersTimes8.get(i_value) + ","   
+													+ workersTimes10.get(i_value) + ","  
+													+ workersTimes12.get(i_value));
 			}
 			writePredictionsForModel.close();
+			}
 			
 			//back to the model
-			directModel.addNewDataPoint(q, clusterSize, queryNum-1);
+			directModel.addNewDataPoint(q, clusterSize);
 			int scaleTo = directModel.scaleTo();
 			clusterSize = scaleTo;
 			

@@ -11,6 +11,8 @@ public class Query {
 	private double expectedRuntime; // In seconds
 	private double actualRuntime; // In seconds
 	private int ranOnConfigSize;
+	private double actualRuntimeOnConfig = 0;
+	private double slaRuntime = 0;
 	private int queryID;
 	
 	//new variables
@@ -49,6 +51,20 @@ public class Query {
 	
 	public void setActualRuntime(double time) {
 		this.actualRuntime = time;
+	}
+	
+	public void setActualRuntimeOnConfig(double time) {
+		this.actualRuntimeOnConfig = time;
+	}
+	public double getActualRuntimeOnConfig() {
+		return actualRuntimeOnConfig;
+	}
+	
+	public void setSLATime(double time) {
+		this.slaRuntime = time;
+	}
+	public double getSLARuntime() {
+		return slaRuntime;
 	}
 	
 	public String getQueryName() {

@@ -1,4 +1,5 @@
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -277,12 +278,10 @@ class DirectHopElasticity {
 	public List<Query> completedWorkload = new ArrayList<Query>();
 	public List<Integer> configs = new ArrayList<Integer>();
 	int scaleTo = 0;
-	double P = 0.8;
+	double P = 0.9;
 	int queryCount = 0;
 	int windowSize = 1;
 
-	
-	
 	public DirectHopElasticity(Cluster cluster) {
 		this.configs = new ArrayList<Integer>();
 		int skipFactor = cluster.getSkipFactor();
@@ -294,24 +293,26 @@ class DirectHopElasticity {
 	public String getName() {
 		return "Direct Hop Elasticity";
 	}
-
-	public void addNewDataPoint(Query q, int currentClusterSize, int queryIndex) {
-		Map<Integer, List<Double>> predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/prediction_results-selected.csv");
+	Map<Integer, List<Double>> predictionMap= new HashMap<Integer, List<Double>>();
+	public void addNewDataPoint(Query q, int currentClusterSize) {
+		predictionMap.clear();
+		predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/prediction_results-selected.csv");
+		
 		completedWorkload.add(q);
 		q.setRanOnConfigSize(currentClusterSize);
 		queryCount++;
 
 		if (queryCount == windowSize) {
-
 			System.out.print("\t \t || EWMAs for workload after this query || ");
 			for (Integer config : configs) {
 				scaleTo = config;
 
 				Workload estimatedWorkload = new Workload("temp");
+				int qNum = 0;
 				for (Query query : completedWorkload) {
 					Query estimatedQuery = new Query(query.getJson());
 					//double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
-					double estimatedTime = predictionMap.get(queryIndex).get((config - 4) / 2);
+					double estimatedTime = predictionMap.get(qNum).get((config - 4) / 2);
 					
 					if(query.getRanOnConfigSize() == config) {
 						estimatedQuery.setActualRuntime(query.getActualRuntime());
@@ -322,22 +323,29 @@ class DirectHopElasticity {
 					
 					estimatedQuery.setExpectedRuntime(query.getExpectedRuntime());
 					estimatedWorkload.addQuery(estimatedQuery);
+					
+					//extra info
+					estimatedQuery.setRanOnConfigSize((int) query.getRanOnConfigSize());
+					estimatedQuery.setActualRuntimeOnConfig(query.getActualRuntime());
+					estimatedQuery.setSLATime(query.getExpectedRuntime());
+					
+					qNum++;
 				}
 				
 				System.out.print(config + ": ");
 				if (OptimizationFunction.workloadMeetsRequirements(estimatedWorkload, P, config)) {
 					// We have found the smallest suitable cluster
-					queryCount = 0;
+					queryCount= 0;
 					System.out.println("");
 					return;
 				}
 				System.out.print(", ");
 			}
-			queryCount = 0;
 		} else {
 			scaleTo = currentClusterSize;
 		}
 		System.out.println("");
+		queryCount= 0;
 		// If we finished the loop, scaleTo is set to the largest possible cluster size
 	}
 
