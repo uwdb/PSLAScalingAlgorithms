@@ -5,8 +5,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -1130,17 +1132,20 @@ public class Main {
 	}
 
 	
-	private static void convergenceTimingDirectBATCH() throws IOException, InterruptedException{
+	private static void convergenceTimingDirectBATCHOldPredictions() throws IOException, InterruptedException{
 		//algorithm parameters
 		int batchNumber = 5;
 		boolean scaleDown = false;
 		int clusterSize = 4;
 		boolean usePredictions = true;
-		boolean staticPredictions = false; //undo the cp stuff
+		boolean staticPredictions = false; 
+		
+		String MLFunction = "java weka.classifiers.functions.GaussianProcesses -L 1.0 -N 0 -K \"weka.classifiers.functions.supportVector.RBFKernel -C 250007 -G 1.0\"";
 		
 		//file parameters
 		String masterPath = "/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/";
 		String keyFile = "under";
+		boolean getNewQueryCollection = false;
 		
 		//double currentRunningTime = 0.0;
 		
@@ -1157,12 +1162,6 @@ public class Main {
 		workloads.add(new Workload("10 Node"));
 		workloads.add(new Workload("12 Node"));	
 		
-		
-		Map<Integer, List<Double>> timeMap_expected = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_estimated.csv");
-		Map<Integer, List<Double>> timeMap_actual = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_actual.csv");
-		
-		int qlistSize = timeMap_actual.size();
-		
 		//populate query IDs from file (for testing queries)
 		FileReader testing_queriesIDsFile = new FileReader( new File(masterPath + "predictions/testing_ids.txt"));
 		BufferedReader testing_queriesIDsBuffer = new BufferedReader(testing_queriesIDsFile);
@@ -1171,6 +1170,178 @@ public class Main {
 		while((currentReadID=testing_queriesIDsBuffer.readLine())!=null) {
 			queryIDs_all.add(Integer.valueOf(currentReadID));
 		}
+		
+		if(usePredictions && getNewQueryCollection)
+		{		
+			//initial predictions -- get over or underestimated queries and save to 
+			String command = String.format(MLFunction + " -t %s  -T %s -p 0 > %s",
+					masterPath + "predictions/training-small-noID.arff",
+					masterPath + "predictions/testing-small-noID.arff",
+					masterPath + "predictions/prediction_results.txt");
+
+			Process initPredictions = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + command});
+			initPredictions.waitFor();
+			
+			//STEP 3: Parse the prediction results
+			ArrayList<Double> workersTimes4Pred = new ArrayList<Double>();
+			ArrayList<Double> workersTimes6Pred = new ArrayList<Double>();
+			ArrayList<Double> workersTimes8Pred = new ArrayList<Double>();
+			ArrayList<Double> workersTimes10Pred = new ArrayList<Double>();
+			ArrayList<Double> workersTimes12Pred = new ArrayList<Double>();
+			
+			FileReader predictionFile = new FileReader( new File(masterPath + "predictions/prediction_results.txt"));
+			BufferedReader predictionsBuffer = new BufferedReader(predictionFile);
+			
+			//skip header lines 
+			for(int headerLine = 0 ; headerLine < 5; headerLine++){
+				predictionsBuffer.readLine();
+			}
+			//read the rest of the file
+			for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+				for(int j = 0; j < 100; j++){ //100 lines for each config
+
+					//there should be a way to make the output nicer
+					String[] pieces = predictionsBuffer.readLine().split("    ");
+					double predictionReadFromFile;
+					try{
+						predictionReadFromFile =  Double.valueOf(pieces[pieces.length-2].trim());
+					}
+					catch(Exception e){
+						predictionReadFromFile =  Double.valueOf(pieces[pieces.length-3].trim());
+					}
+					
+					switch(currentReadConfig){
+						case 0: 
+							workersTimes4Pred.add(predictionReadFromFile);
+							break;
+						case 1: 
+							workersTimes6Pred.add(predictionReadFromFile);
+							break;
+						case 2: 
+							workersTimes8Pred.add(predictionReadFromFile);
+							break;
+						case 3: 
+							workersTimes10Pred.add(predictionReadFromFile);
+							break;
+						case 4: 
+							workersTimes12Pred.add(predictionReadFromFile);
+							break;
+						
+					}
+					
+				}
+			}
+			predictionsBuffer.close();
+			
+			//arrange the runtimes into a file
+			PrintWriter writePredictionsForModel = new PrintWriter(masterPath + "predictions/prediction_results.csv", "UTF-8");
+			for(int i = 0; i < 100; i++){					
+					writePredictionsForModel.println(queryIDs_all.get(i) + "," 
+													+ workersTimes4Pred.get(i) + "," 
+													+  workersTimes6Pred.get(i) + ","  
+													+ workersTimes8Pred.get(i) + ","   
+													+ workersTimes10Pred.get(i) + ","  
+													+ workersTimes12Pred.get(i));
+			}
+			writePredictionsForModel.close();
+			
+			//get real runtimes for 4 workers
+			ArrayList<Double> realRuntimes4Workers = new ArrayList<Double>();
+			ArrayList<Double> realRuntimes6Workers = new ArrayList<Double>();
+			ArrayList<Double> realRuntimes8Workers = new ArrayList<Double>();
+			ArrayList<Double> realRuntimes10Workers = new ArrayList<Double>();
+			ArrayList<Double> realRuntimes12Workers = new ArrayList<Double>();
+			FileReader runtimeFile = new FileReader( new File(masterPath + "predictions/testing-small.arff"));
+			BufferedReader runtimeFileBuffer = new BufferedReader(runtimeFile);
+			
+			
+			//skip header lines 
+			for(int headerLine = 0 ; headerLine < 13; headerLine++){
+				runtimeFileBuffer.readLine();
+			}
+			
+			for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+			int j = 0;
+			do{
+				try{
+					String[] splitLine = runtimeFileBuffer.readLine().split(",");
+					double realTime = Double.parseDouble(splitLine[8]);
+					
+					switch(currentReadConfig){
+					case 0: 
+						realRuntimes4Workers.add(realTime);
+						break;
+					case 1: 
+						realRuntimes6Workers.add(realTime);
+						break;
+					case 2: 
+						realRuntimes8Workers.add(realTime);
+						break;
+					case 3: 
+						realRuntimes10Workers.add(realTime);
+						break;
+					case 4: 
+						realRuntimes12Workers.add(realTime);
+						break;
+					
+				}
+				}
+				catch(Exception E){
+				}
+				j++;
+			} while(j < 100);
+			}
+			
+
+			ArrayList<Integer> indexes = new ArrayList<Integer>();
+			int currentIndex = 0;
+			for(Double current4Pred : workersTimes4Pred){
+				if(current4Pred < realRuntimes4Workers.get(currentIndex) && keyFile.equals("under")){
+					indexes.add(currentIndex);
+				}
+				if(current4Pred > realRuntimes4Workers.get(currentIndex) && keyFile.equals("over")){
+					indexes.add(currentIndex);
+				}
+				currentIndex++;
+			}
+			
+			//write estimates
+			int pick = 20;
+			Collections.shuffle(indexes);
+			
+			PrintWriter estimates_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_estimated.csv", "UTF-8");
+			PrintWriter real_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_actual.csv", "UTF-8");
+			
+			for(int i = 0; i< pick; i++){
+				if(i < indexes.size()){
+				int query_num = indexes.get(i);
+					
+				estimates_writer.println(queryIDs_all.get(query_num) + "," 
+						+ workersTimes4Pred.get(query_num) + "," 
+						+  workersTimes6Pred.get(query_num) + ","  
+						+ workersTimes8Pred.get(query_num) + ","   
+						+ workersTimes10Pred.get(query_num) + ","  
+						+ workersTimes12Pred.get(query_num));
+				
+				real_writer.println(queryIDs_all.get(query_num) + "," 
+						+ realRuntimes4Workers.get(query_num) + "," 
+						+  realRuntimes6Workers.get(query_num) + ","  
+						+ realRuntimes8Workers.get(query_num) + ","   
+						+ realRuntimes10Workers.get(query_num) + ","  
+						+ realRuntimes12Workers.get(query_num));
+				}
+			}
+			
+			estimates_writer.close();
+			real_writer.close();
+			
+		}
+		
+			
+		Map<Integer, List<Double>> timeMap_expected = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_estimated.csv");
+		Map<Integer, List<Double>> timeMap_actual = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_actual.csv");
+		
+		int qlistSize = timeMap_actual.size();
 		
 		//this last part outputs only the queries I'm working with at the moment
 		ArrayList<Integer> queryIDs_subset = new ArrayList<Integer>();
@@ -1287,9 +1458,11 @@ public class Main {
 							case 6: //actual rows -- find it in the populated list
 								for(Map.Entry<String, List<Double>>  entry: actualCardinalities.entrySet()){
 									String[] parseKey = entry.getKey().split("-");
-
+	
 									if(Integer.valueOf(parseKey[0]).equals(currentQueryID) && Integer.valueOf(parseKey[1]).equals(currentConfig)){
-										newTestArffFile.write(entry.getValue().get(1) + ",");
+										DecimalFormat df = new DecimalFormat("#");
+								        df.setMaximumFractionDigits(8);
+										newTestArffFile.write(df.format(entry.getValue().get(1)) + ",");
 									}
 								}
 								break;
@@ -1331,10 +1504,11 @@ public class Main {
 		    Process runRemove_testing = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + removeIDCommand_testing});
 		    runRemove_testing.waitFor();
 		 
-			String command = String.format("java weka.classifiers.functions.GaussianProcesses -L 1.0 -N 0 -K \"weka.classifiers.functions.supportVector.RBFKernel -C 250007 -G 1.0\" -t %s  -T %s -p 0 > %s",
-													masterPath + "predictions/training-small-noID.arff",
-													masterPath + "predictions/testing-small-noID.arff",
-													masterPath + "predictions/prediction_results.txt");
+		    //weka.classifiers.rules.M5Rules -M 4.0
+			String command = String.format(MLFunction + " -t %s  -T %s -p 0 > %s",
+											masterPath + "predictions/training-small-noID.arff",
+											masterPath + "predictions/testing-small-noID.arff",
+											masterPath + "predictions/prediction_results.txt");
 			
 			Process getResults = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + command});
 			getResults.waitFor();
@@ -1427,6 +1601,695 @@ public class Main {
 	}
 
 	
+	//the new predictions with more attributes will be here
+	private static void convergenceTimingDirectBATCH() throws IOException, InterruptedException{
+	//algorithm parameters
+			int batchNumber = 5;
+			boolean scaleDown = false;
+			int clusterSize = 4;
+			boolean usePredictions = true;
+			boolean staticPredictions = true; 
+			
+			//String MLFunction = "java weka.classifiers.functions.GaussianProcesses -L 1.0 -N 0 -K \"weka.classifiers.functions.supportVector.RBFKernel -C 250007 -G 1.0\"";
+			String MLFunction = "java weka.classifiers.rules.M5Rules -M 4.0";
+			
+			//file parameters
+			String masterPath = "/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/";
+			String keyFile = "under";
+			boolean getNewQueryCollection = false;
+			
+			
+			//if we're scaling down, start the cluster at 12 (the max)
+			if (scaleDown) {
+				clusterSize = 12;
+			}
+
+			ArrayList<Workload> workloads = new ArrayList<Workload>();
+
+			workloads.add(new Workload("4 Node"));
+			workloads.add(new Workload("6 Node"));
+			workloads.add(new Workload("8 Node"));
+			workloads.add(new Workload("10 Node"));
+			workloads.add(new Workload("12 Node"));	
+			
+			//populate query IDs from file (for testing queries)
+			FileReader testing_queriesIDsFile = new FileReader( new File(masterPath + "predictions/testing_ids.txt"));
+			BufferedReader testing_queriesIDsBuffer = new BufferedReader(testing_queriesIDsFile);
+			String currentReadID = "";
+			ArrayList<Integer> queryIDs_all = new ArrayList<Integer>();
+			while((currentReadID=testing_queriesIDsBuffer.readLine())!=null) {
+				queryIDs_all.add(Integer.valueOf(currentReadID));
+			}
+			testing_queriesIDsBuffer.close();
+			
+			
+			if(usePredictions && getNewQueryCollection)
+			{		
+				//initial predictions -- get over or underestimated queries and save to 
+				String command = String.format(MLFunction + " -t %s  -T %s -p 0 > %s",
+						masterPath + "predictions/training-small-noID.arff",
+						masterPath + "predictions/testing-small-noID.arff",
+						masterPath + "predictions/prediction_results.txt");
+
+				Process initPredictions = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + command});
+				initPredictions.waitFor();
+				
+				//STEP 3: Parse the prediction results
+				ArrayList<Double> workersTimes4Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes6Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes8Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes10Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes12Pred = new ArrayList<Double>();
+				
+				FileReader predictionFile = new FileReader( new File(masterPath + "predictions/prediction_results.txt"));
+				BufferedReader predictionsBuffer = new BufferedReader(predictionFile);
+				
+				//skip header lines 
+				for(int headerLine = 0 ; headerLine < 5; headerLine++){
+					predictionsBuffer.readLine();
+				}
+				//read the rest of the file
+				for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+					for(int j = 0; j < 100; j++){ //100 lines for each config
+
+						//there should be a way to make the output nicer
+						String[] pieces = predictionsBuffer.readLine().split("    ");
+						double predictionReadFromFile;
+						try{
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-2].trim());
+						}
+						catch(Exception e){
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-3].trim());
+						}
+						
+						switch(currentReadConfig){
+							case 0: 
+								workersTimes4Pred.add(predictionReadFromFile);
+								break;
+							case 1: 
+								workersTimes6Pred.add(predictionReadFromFile);
+								break;
+							case 2: 
+								workersTimes8Pred.add(predictionReadFromFile);
+								break;
+							case 3: 
+								workersTimes10Pred.add(predictionReadFromFile);
+								break;
+							case 4: 
+								workersTimes12Pred.add(predictionReadFromFile);
+								break;
+							
+						}
+						
+					}
+				}
+				predictionsBuffer.close();
+				
+				//arrange the runtimes into a file
+				PrintWriter writePredictionsForModel = new PrintWriter(masterPath + "predictions/prediction_results.csv", "UTF-8");
+				for(int i = 0; i < 100; i++){					
+						writePredictionsForModel.println(queryIDs_all.get(i) + "," 
+														+ workersTimes4Pred.get(i) + "," 
+														+  workersTimes6Pred.get(i) + ","  
+														+ workersTimes8Pred.get(i) + ","   
+														+ workersTimes10Pred.get(i) + ","  
+														+ workersTimes12Pred.get(i));
+				}
+				writePredictionsForModel.close();
+				
+				//get real runtimes for 4 workers
+				ArrayList<Double> realRuntimes4Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes6Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes8Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes10Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes12Workers = new ArrayList<Double>();
+				FileReader runtimeFile = new FileReader( new File(masterPath + "predictions/testing-small.arff"));
+				BufferedReader runtimeFileBuffer = new BufferedReader(runtimeFile);
+				
+				
+				//skip header lines 
+				for(int headerLine = 0 ; headerLine < 13; headerLine++){
+					runtimeFileBuffer.readLine();
+				}
+				
+				for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+				int j = 0;
+				do{
+					try{
+						String[] splitLine = runtimeFileBuffer.readLine().split(",");
+						double realTime = Double.parseDouble(splitLine[8]);
+						
+						switch(currentReadConfig){
+						case 0: 
+							realRuntimes4Workers.add(realTime);
+							break;
+						case 1: 
+							realRuntimes6Workers.add(realTime);
+							break;
+						case 2: 
+							realRuntimes8Workers.add(realTime);
+							break;
+						case 3: 
+							realRuntimes10Workers.add(realTime);
+							break;
+						case 4: 
+							realRuntimes12Workers.add(realTime);
+							break;
+						
+					}
+					}
+					catch(Exception E){
+					}
+					j++;
+				} while(j < 100);
+				}
+				
+
+				ArrayList<Integer> indexes = new ArrayList<Integer>();
+				int currentIndex = 0;
+				for(Double current4Pred : workersTimes4Pred){
+					if(current4Pred < realRuntimes4Workers.get(currentIndex) && keyFile.equals("under")){
+						indexes.add(currentIndex);
+					}
+					if(current4Pred > realRuntimes4Workers.get(currentIndex) && keyFile.equals("over")){
+						indexes.add(currentIndex);
+					}
+					currentIndex++;
+				}
+				
+				//write estimates
+				int pick = 20;
+				Collections.shuffle(indexes);
+				
+				PrintWriter estimates_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_estimated.csv", "UTF-8");
+				PrintWriter real_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_actual.csv", "UTF-8");
+				
+				for(int i = 0; i< pick; i++){
+					if(i < indexes.size()){
+					int query_num = indexes.get(i);
+						
+					estimates_writer.println(queryIDs_all.get(query_num) + "," 
+							+ workersTimes4Pred.get(query_num) + "," 
+							+  workersTimes6Pred.get(query_num) + ","  
+							+ workersTimes8Pred.get(query_num) + ","   
+							+ workersTimes10Pred.get(query_num) + ","  
+							+ workersTimes12Pred.get(query_num));
+					
+					real_writer.println(queryIDs_all.get(query_num) + "," 
+							+ realRuntimes4Workers.get(query_num) + "," 
+							+  realRuntimes6Workers.get(query_num) + ","  
+							+ realRuntimes8Workers.get(query_num) + ","   
+							+ realRuntimes10Workers.get(query_num) + ","  
+							+ realRuntimes12Workers.get(query_num));
+					}
+				}
+				
+				estimates_writer.close();
+				real_writer.close();
+				
+			}
+
+			
+			
+			if(usePredictions && getNewQueryCollection && false)
+			{		
+				//initial predictions -- get over or underestimated queries and save to file
+				String command = String.format(MLFunction + " -t %s  -T %s -p 0 > %s",
+						masterPath + "predictions/extra_attributes_order/training_extra_order_small_noID.arff",
+						masterPath + "predictions/extra_attributes_order/testing_extra_order_small_noID.arff",
+						masterPath + "predictions/extra_attributes_order/prediction_results.txt");
+
+				Process initPredictions = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + command});
+				initPredictions.waitFor();
+				
+				//STEP 3: Parse the prediction results
+				ArrayList<Double> workersTimes4Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes6Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes8Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes10Pred = new ArrayList<Double>();
+				ArrayList<Double> workersTimes12Pred = new ArrayList<Double>();
+				
+				FileReader predictionFile = new FileReader( new File(masterPath + "predictions/extra_attributes_order/prediction_results.txt"));
+				BufferedReader predictionsBuffer = new BufferedReader(predictionFile);
+				
+				//skip header lines 
+				for(int headerLine = 0 ; headerLine < 5; headerLine++){
+					predictionsBuffer.readLine();
+				}
+				//read the rest of the file
+				for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+					for(int j = 0; j < 100; j++){ //100 lines for each config
+
+						//there should be a way to make the output nicer
+						String[] pieces = predictionsBuffer.readLine().split("    ");
+						double predictionReadFromFile;
+						try{
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-2].trim());
+						}
+						catch(Exception e){
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-3].trim());
+						}
+						
+						switch(currentReadConfig){
+							case 0: 
+								workersTimes4Pred.add(predictionReadFromFile);
+								break;
+							case 1: 
+								workersTimes6Pred.add(predictionReadFromFile);
+								break;
+							case 2: 
+								workersTimes8Pred.add(predictionReadFromFile);
+								break;
+							case 3: 
+								workersTimes10Pred.add(predictionReadFromFile);
+								break;
+							case 4: 
+								workersTimes12Pred.add(predictionReadFromFile);
+								break;
+							
+						}
+						
+					}
+				}
+				predictionsBuffer.close();
+				
+				//arrange the runtimes into a file
+				PrintWriter writePredictionsForModel = new PrintWriter(masterPath + "predictions/extra_attributes_order/prediction_results.csv", "UTF-8");
+				for(int i = 0; i < 100; i++){					
+						writePredictionsForModel.println(queryIDs_all.get(i) + "," 
+														+ workersTimes4Pred.get(i) + "," 
+														+  workersTimes6Pred.get(i) + ","  
+														+ workersTimes8Pred.get(i) + ","   
+														+ workersTimes10Pred.get(i) + ","  
+														+ workersTimes12Pred.get(i));
+				}
+				writePredictionsForModel.close();
+				
+				//get real runtimes for 4 workers
+				ArrayList<Double> realRuntimes4Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes6Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes8Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes10Workers = new ArrayList<Double>();
+				ArrayList<Double> realRuntimes12Workers = new ArrayList<Double>();
+				FileReader runtimeFile = new FileReader( new File(masterPath + "predictions/extra_attributes_order/testing_extra_order_small.arff"));
+				BufferedReader runtimeFileBuffer = new BufferedReader(runtimeFile);
+				
+				
+				//skip header lines 
+				for(int headerLine = 0 ; headerLine < 18; headerLine++){
+					runtimeFileBuffer.readLine();
+				}
+				
+				for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+				int j = 0;
+				do{
+					try{
+						String[] splitLine = runtimeFileBuffer.readLine().split(",");
+						double realTime = Double.parseDouble(splitLine[13]);
+						
+						switch(currentReadConfig){
+						case 0: 
+							realRuntimes4Workers.add(realTime);
+							break;
+						case 1: 
+							realRuntimes6Workers.add(realTime);
+							break;
+						case 2: 
+							realRuntimes8Workers.add(realTime);
+							break;
+						case 3: 
+							realRuntimes10Workers.add(realTime);
+							break;
+						case 4: 
+							realRuntimes12Workers.add(realTime);
+							break;
+						
+					}
+					}
+					catch(Exception E){
+					}
+					j++;
+				} while(j < 100);
+				}
+				
+				runtimeFileBuffer.close();
+
+				ArrayList<Integer> indexes = new ArrayList<Integer>();
+				int currentIndex = 0;
+				for(Double current4Pred : workersTimes4Pred){
+					if(current4Pred < realRuntimes4Workers.get(currentIndex) && keyFile.equals("under")){
+						indexes.add(currentIndex);
+					}
+					if(current4Pred > realRuntimes4Workers.get(currentIndex) && keyFile.equals("over")){
+						indexes.add(currentIndex);
+					}
+					currentIndex++;
+				}
+				
+				//write estimates
+				int pick = 20;
+				Collections.shuffle(indexes);
+				
+				PrintWriter estimates_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_estimated.csv", "UTF-8");
+				PrintWriter real_writer = new PrintWriter(masterPath + "queries_" + keyFile + "estimated_actual.csv", "UTF-8");
+				
+				for(int i = 0; i< pick; i++){
+					if(i < indexes.size()){
+					int query_num = indexes.get(i);
+						
+					estimates_writer.println(queryIDs_all.get(query_num) + "," 
+							+ workersTimes4Pred.get(query_num) + "," 
+							+  workersTimes6Pred.get(query_num) + ","  
+							+ workersTimes8Pred.get(query_num) + ","   
+							+ workersTimes10Pred.get(query_num) + ","  
+							+ workersTimes12Pred.get(query_num));
+					
+					real_writer.println(queryIDs_all.get(query_num) + "," 
+							+ realRuntimes4Workers.get(query_num) + "," 
+							+  realRuntimes6Workers.get(query_num) + ","  
+							+ realRuntimes8Workers.get(query_num) + ","   
+							+ realRuntimes10Workers.get(query_num) + ","  
+							+ realRuntimes12Workers.get(query_num));
+					}
+				}
+				
+				estimates_writer.close();
+				real_writer.close();
+				
+			}
+			
+				
+			Map<Integer, List<Double>> timeMap_expected = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_estimated.csv");
+			Map<Integer, List<Double>> timeMap_actual = FileReaderUtils.readTimeMap(masterPath + "queries_" + keyFile + "estimated_actual.csv");
+			
+			int qlistSize = timeMap_actual.size();
+			
+			//this last part outputs only the queries I'm working with at the moment
+			ArrayList<Integer> queryIDs_subset = new ArrayList<Integer>();
+			FileReader idFile = new FileReader( new File(masterPath + "queries_" + keyFile + "estimated_estimated.csv"));
+			BufferedReader idFileBuffer = new BufferedReader(idFile);
+			while((currentReadID=idFileBuffer.readLine())!=null)
+			{
+				queryIDs_subset.add(Integer.valueOf(currentReadID.split(",")[0]));
+			}
+			idFileBuffer.close();
+			
+			//for each workload add a query and set the sla time for 4 workers
+			for(int j = 0; j < batchNumber; j++){
+				for (int i = 0; i < qlistSize; i++) {
+					for (Workload workload : workloads) {
+					workload.addQuery(new Query(null));
+					workload.getQueries().get(i).setExpectedRuntime(timeMap_expected.get(i).get(0));
+					}
+				}
+			}
+
+			DirectHopElasticity directModel = new DirectHopElasticity(cluster);
+			System.out.println("queryNum,expected,actual,workers");
+			
+			int queryNum = 1;
+			int totalQueriesMissed = 0;
+			int totalMissed = 0;
+			
+			//only for predictions if used
+			Map<String, List<Double>> actualCardinalities  = new HashMap<String, List<Double>>();
+			
+			//start the model over the batch of queries
+			for (int queryIndex = 0; queryIndex < qlistSize; queryIndex++) {
+				int workloadIndex = (clusterSize - 4) / 2;
+				int startingNumWorkers = clusterSize;
+				
+				//get the first query and "run" it
+				Query q = workloads.get(workloadIndex).getQueries().get(queryIndex);
+				q.setQueryID(queryIDs_subset.get(queryIndex));
+				
+				double elapsedRuntime = timeMap_actual.get(queryIndex).get(workloadIndex);
+				q.setActualRuntime(elapsedRuntime);
+
+				
+				System.out.printf("%-1d, %2f, %2f, %d \t", queryNum,  
+						q.getExpectedRuntime(),
+						elapsedRuntime,
+						startingNumWorkers);
+				
+				
+				//*****modify predictions
+				if(usePredictions){	
+					
+				//STEP 1: modify test file
+				
+				if (queryNum == 1) { //only do once
+					//make a copy
+					Process makeArffCopy = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "cd " + masterPath + "predictions/extra_attributes_order/; cp testing_extra_order_small.arff testing_extra_order_small_cp.arff;"});
+					makeArffCopy.waitFor();
+					
+					//read actual cardinalities
+					FileReader actual_cardinalitiesFile = new FileReader( new File(masterPath + "predictions/testing_actual_cardinalities.txt"));
+					BufferedReader actual_cardinalitiesBuffer = new BufferedReader(actual_cardinalitiesFile);
+					String currentLine = "";
+					while((currentLine=actual_cardinalitiesBuffer.readLine())!=null) {
+						String[] currentListSplit = currentLine.split(",");
+						String generatedKey = currentListSplit[0] + "-" + currentListSplit[1];
+						List<Double> moreFeatures = new ArrayList<Double>();
+						moreFeatures.add(Double.valueOf(currentListSplit[2]));
+						moreFeatures.add(Double.valueOf(currentListSplit[3]));
+						actualCardinalities.put(generatedKey, moreFeatures);
+					}
+					actual_cardinalitiesBuffer.close();
+					
+				}
+				else
+				{
+					//make a copy
+					Process makeArffCopy = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "cd " + masterPath + "predictions/extra_attributes_order/; cp testing_extra_order_small_mod.arff testing_extra_order_small_cp.arff;"});
+					makeArffCopy.waitFor();
+				}
+				PrintWriter newTestArffFile = new PrintWriter(masterPath + "predictions/extra_attributes_order/testing_extra_order_small_mod.arff", "UTF-8");
+				
+				FileReader currentPredictionsFile = new FileReader( new File(masterPath + "predictions/extra_attributes_order/testing_extra_order_small_cp.arff"));
+				
+				BufferedReader currentPredictionsBuffer = new BufferedReader(currentPredictionsFile);
+				String currentLine = null;
+				
+				int lineNumber = 0;
+				//read/write the header
+				for(int l = 0 ; l < 18; l++){
+					String beginningLine = currentPredictionsBuffer.readLine();
+					newTestArffFile.write(beginningLine + "\n");
+					lineNumber++;
+				}
+				//read/write the rest of the file
+				while((currentLine=currentPredictionsBuffer.readLine())!=null)
+				{
+					String[] currentListSplit = currentLine.split(",");
+					Integer currentQueryID = Integer.valueOf(currentListSplit[0]);
+					Integer currentConfig = Integer.valueOf(currentListSplit[7]);
+					if(currentQueryID == q.getQueryID() && !staticPredictions){
+						for(int i = 0; i< 14; i++){
+							switch(i) {
+								case 5: //actual time to milliseconds
+									if(currentConfig == clusterSize){ //only modify if the configuration matches
+									for(Map.Entry<String, List<Double>>  entry: actualCardinalities.entrySet()){
+										String[] parseKey = entry.getKey().split("-");
+
+										if(Integer.valueOf(parseKey[0]).equals(currentQueryID) && Integer.valueOf(parseKey[1]).equals(currentConfig)){
+											newTestArffFile.write(entry.getValue().get(0) + ",");
+										}
+									}
+									}
+									else{
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 6: //actual rows -- find it in the populated list
+									if(currentConfig == clusterSize){
+									for(Map.Entry<String, List<Double>>  entry: actualCardinalities.entrySet()){
+										String[] parseKey = entry.getKey().split("-");
+		
+										if(Integer.valueOf(parseKey[0]).equals(currentQueryID) && Integer.valueOf(parseKey[1]).equals(currentConfig)){
+											DecimalFormat df = new DecimalFormat("#");
+									        df.setMaximumFractionDigits(8);
+											newTestArffFile.write(df.format(entry.getValue().get(1)) + ",");
+										}
+									}
+									}
+									else{
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 8: //4 workers
+									if(currentConfig != clusterSize && clusterSize == 4){
+										newTestArffFile.write(q.getActualRuntime() + ",");
+									}
+									else {
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 9: //6 workers
+									if(currentConfig != clusterSize && clusterSize == 6){
+										newTestArffFile.write(q.getActualRuntime() + ",");
+									}
+									else {
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 10: //8 workers
+									if(currentConfig != clusterSize && clusterSize == 8){
+										newTestArffFile.write(q.getActualRuntime() + ",");
+									}
+									else {
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 11: //10 workers
+									if(currentConfig != clusterSize && clusterSize == 10){
+										newTestArffFile.write(q.getActualRuntime() + ",");
+									}
+									else {
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								case 12: //12 workers
+									if(currentConfig != clusterSize && clusterSize == 12){
+										newTestArffFile.write(q.getActualRuntime() + ",");
+									}
+									else {
+										newTestArffFile.write(currentListSplit[i] + ",");
+									}
+									break;
+								default: 
+									newTestArffFile.write(currentListSplit[i] + ",");
+									break;
+							}
+						}
+						newTestArffFile.write("\n");
+					}
+					else
+					{
+						newTestArffFile.write(currentLine + "\n");
+					}
+					lineNumber++;
+				}
+				newTestArffFile.close();
+				currentPredictionsFile.close();
+				
+				//STEP 2: re-run predictions
+				//clear results
+				if(!staticPredictions){
+				
+				Process clearResults = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "> " + masterPath + "predictions/prediction_results.txt"});
+			    clearResults.waitFor();
+			    
+			    //remove the ID attribute for training and testing
+			    String removeIDCommand_training = String.format("java weka.filters.unsupervised.attribute.Remove -R %s -i %s -o %s",
+						"1",
+						masterPath + "predictions/extra_attributes_order/training_extra_order_small.arff",
+						masterPath + "predictions/extra_attributes_order/training_extra_order_small_noID.arff");
+			    Process runRemove_training = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + removeIDCommand_training});
+			    runRemove_training.waitFor();
+			    
+			    String removeIDCommand_testing = String.format("java weka.filters.unsupervised.attribute.Remove -R %s -i %s -o %s",
+						"1",
+						masterPath + "predictions/extra_attributes_order/testing_extra_order_small_mod.arff",
+						masterPath + "predictions/extra_attributes_order/testing_extra_order_small_noID.arff");
+			    Process runRemove_testing = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + removeIDCommand_testing});
+			    runRemove_testing.waitFor();
+			 
+			    //weka.classifiers.rules.M5Rules -M 4.0
+				String command = String.format(MLFunction + " -t %s  -T %s -p 0 > %s",
+												masterPath + "predictions/extra_attributes_order/training_extra_order_small_noID.arff",
+												masterPath + "predictions/extra_attributes_order/testing_extra_order_small_noID.arff",
+												masterPath + "predictions/extra_attributes_order/prediction_results.txt");
+				
+				Process getResults = Runtime.getRuntime().exec(new String[]{"/bin/sh", "-c", "export CLASSPATH=$CLASSPATH:/Users/jortiz16/Desktop/weka-3-6-12/weka.jar;" + command});
+				getResults.waitFor();
+				
+				//STEP 3: Parse the prediction results
+				ArrayList<Double> workersTimes4 = new ArrayList<Double>();
+				ArrayList<Double> workersTimes6 = new ArrayList<Double>();
+				ArrayList<Double> workersTimes8 = new ArrayList<Double>();
+				ArrayList<Double> workersTimes10 = new ArrayList<Double>();
+				ArrayList<Double> workersTimes12 = new ArrayList<Double>();
+				
+				FileReader predictionFile = new FileReader( new File(masterPath + "predictions/extra_attributes_order/prediction_results.txt"));
+				BufferedReader predictionsBuffer = new BufferedReader(predictionFile);
+				
+				//skip header lines 
+				for(int headerLine = 0 ; headerLine < 5; headerLine++){
+					predictionsBuffer.readLine();
+				}
+				//read the rest of the file
+				for(int currentReadConfig = 0; currentReadConfig < 5; currentReadConfig++){
+					for(int j = 0; j < 100; j++){ //100 lines for each config
+
+						//there should be a way to make the output nicer
+						String[] pieces = predictionsBuffer.readLine().split("    ");
+						double predictionReadFromFile;
+						try{
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-2].trim());
+						}
+						catch(Exception e){
+							predictionReadFromFile =  Double.valueOf(pieces[pieces.length-3].trim());
+						}
+						
+						switch(currentReadConfig){
+							case 0: 
+								workersTimes4.add(predictionReadFromFile);
+								break;
+							case 1: 
+								workersTimes6.add(predictionReadFromFile);
+								break;
+							case 2: 
+								workersTimes8.add(predictionReadFromFile);
+								break;
+							case 3: 
+								workersTimes10.add(predictionReadFromFile);
+								break;
+							case 4: 
+								workersTimes12.add(predictionReadFromFile);
+								break;
+							
+						}
+						
+					}
+				}
+				predictionsBuffer.close();
+			
+				
+				//arrange the runtimes into a file
+				PrintWriter writePredictionsForModel = new PrintWriter(masterPath + "predictions/extra_attributes_order/prediction_results-selected.csv", "UTF-8");
+				for(int i = 0; i < queryIDs_subset.size(); i++){
+						int currentID = queryIDs_subset.get(i);
+						int i_value = queryIDs_all.indexOf(currentID);
+						
+						writePredictionsForModel.println(queryIDs_all.get(i_value) + "," 
+														+ workersTimes4.get(i_value) + "," 
+														+  workersTimes6.get(i_value) + ","  
+														+ workersTimes8.get(i_value) + ","   
+														+ workersTimes10.get(i_value) + ","  
+														+ workersTimes12.get(i_value));
+				}
+				writePredictionsForModel.close();
+				}
+				
+				//back to the model
+				directModel.addNewDataPoint(q, clusterSize, staticPredictions, keyFile);
+				int scaleTo = directModel.scaleTo();
+				clusterSize = scaleTo;
+				
+				if(q.getExpectedRuntime() - q.getActualRuntime() < 0)
+				{
+					totalMissed++;
+				}
+
+				queryNum++;
+			}
+			}
+		
+			System.out.println("Total Missed " + totalMissed);
+			
+			cluster.verbose = true;
+		}
 	
 	// Does a simulated experiment that helps debug models without
 	// running the actual queries.  Uses pre-timed queries

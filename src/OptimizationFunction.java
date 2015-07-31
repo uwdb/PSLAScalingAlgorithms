@@ -4,9 +4,8 @@ import DataModel.Query;
 import DataModel.Workload;
 
 public class OptimizationFunction {		
-	public static double lambda = 0.7;
+	public static double lambda = 0.3;
 	public static double z = .01;
-	public static double y = .9;
 	
 	public static boolean workloadMeetsRequirements(Workload w, double P, Integer config) {
 		double movingAverage = getEWMA(w.getQueries(), config, w.getQueries().size() - 1);
@@ -28,17 +27,11 @@ public class OptimizationFunction {
 		}
 	
 		//special conditions
-
-		
 		if(config < current.getRanOnConfigSize() && current.getSLARuntime() < current.getActualRuntimeOnConfig()){ //this config is less and missed at original config
 			double score = current.getExpectedRuntime()/current.getActualRuntime();
 			double penalty = z;
 			v_i = score*penalty;
 		}
-		else if	(config != current.getRanOnConfigSize()){
-			v_i *=y;
-		}
-	
 
 		
 		if (i > 0) {

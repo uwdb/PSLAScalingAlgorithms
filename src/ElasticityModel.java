@@ -278,7 +278,7 @@ class DirectHopElasticity {
 	public List<Query> completedWorkload = new ArrayList<Query>();
 	public List<Integer> configs = new ArrayList<Integer>();
 	int scaleTo = 0;
-	double P = 0.9;
+	double P = 0.8;
 	int queryCount = 0;
 	int windowSize = 1;
 
@@ -294,10 +294,17 @@ class DirectHopElasticity {
 		return "Direct Hop Elasticity";
 	}
 	Map<Integer, List<Double>> predictionMap= new HashMap<Integer, List<Double>>();
-	public void addNewDataPoint(Query q, int currentClusterSize) {
+	public void addNewDataPoint(Query q, int currentClusterSize, boolean staticTimes, String keyFile) {
 		predictionMap.clear();
-		predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/prediction_results-selected.csv");
 		
+		if(staticTimes){
+			predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_" +keyFile +"estimated_estimated.csv");
+		}
+		else {
+			predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/extra_attributes_order/prediction_results-selected.csv");
+		}
+		
+	
 		completedWorkload.add(q);
 		q.setRanOnConfigSize(currentClusterSize);
 		queryCount++;
@@ -313,6 +320,7 @@ class DirectHopElasticity {
 					Query estimatedQuery = new Query(query.getJson());
 					//double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
 					double estimatedTime = predictionMap.get(qNum).get((config - 4) / 2);
+				
 					
 					if(query.getRanOnConfigSize() == config) {
 						estimatedQuery.setActualRuntime(query.getActualRuntime());
@@ -323,6 +331,10 @@ class DirectHopElasticity {
 					
 					estimatedQuery.setExpectedRuntime(query.getExpectedRuntime());
 					estimatedWorkload.addQuery(estimatedQuery);
+					
+					if(config == 4 ){ 
+						//System.out.print(" +++ Running on 4 for: " +  estimatedQuery.getActualRuntime() + " ");
+					}
 					
 					//extra info
 					estimatedQuery.setRanOnConfigSize((int) query.getRanOnConfigSize());
