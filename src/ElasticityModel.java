@@ -278,7 +278,7 @@ class DirectHopElasticity {
 	public List<Query> completedWorkload = new ArrayList<Query>();
 	public List<Integer> configs = new ArrayList<Integer>();
 	int scaleTo = 0;
-	double P = 0.8;
+	double P = 0.9;
 	int queryCount = 0;
 	int windowSize = 1;
 
@@ -293,15 +293,19 @@ class DirectHopElasticity {
 	public String getName() {
 		return "Direct Hop Elasticity";
 	}
-	Map<Integer, List<Double>> predictionMap= new HashMap<Integer, List<Double>>();
+
+	Map<Integer, List<Double>> M1= new HashMap<Integer, List<Double>>();
+	Map<Integer, List<Double>> M2= new HashMap<Integer, List<Double>>();
+	
 	public void addNewDataPoint(Query q, int currentClusterSize, boolean staticTimes, String keyFile) {
-		predictionMap.clear();
+
+		//on higher folder
+		M1 = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_" + keyFile + "estimated_estimated_m1.csv");
 		
-		if(staticTimes){
-			predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/queries_" +keyFile +"estimated_estimated.csv");
-		}
-		else {
-			predictionMap = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/extra_attributes_order/prediction_results-selected.csv");
+		//iterative predictions
+		if(!staticTimes) {
+			M2.clear();
+			M2 = FileReaderUtils.readTimeMap("/Users/jortiz16/Documents/myriascalabilityengine/timing/LargeToSmall/predictions/model_M2/_M2_prediction_results_selected.csv");
 		}
 		
 	
@@ -311,6 +315,10 @@ class DirectHopElasticity {
 
 		if (queryCount == windowSize) {
 			System.out.print("\t \t || EWMAs for workload after this query || ");
+			
+			int bestConfig = 0;
+			double bestConfigScore = 0;
+			
 			for (Integer config : configs) {
 				scaleTo = config;
 
@@ -318,39 +326,71 @@ class DirectHopElasticity {
 				int qNum = 0;
 				for (Query query : completedWorkload) {
 					Query estimatedQuery = new Query(query.getJson());
+					//for linear
 					//double estimatedTime = query.getActualRuntime() * (query.getRanOnConfigSize() / config);
-					double estimatedTime = predictionMap.get(qNum).get((config - 4) / 2);
-				
 					
+					double estimatedTime_M1 = M1.get(qNum).get((config - 4) / 2);
+					
+
 					if(query.getRanOnConfigSize() == config) {
+						
 						estimatedQuery.setActualRuntime(query.getActualRuntime());
 					}
 					else {
-						estimatedQuery.setActualRuntime(estimatedTime);
+						if(!staticTimes) {
+								double estimatedTime_M2 = M2.get(qNum).get((config - 4) / 2);
+								estimatedQuery.setActualRuntime(estimatedTime_M2); //we have information about this
+								
+								if(estimatedTime_M1 != estimatedTime_M2){
+									//System.out.print("------ DIFF " + estimatedTime_M1 + " "+ estimatedTime_M2);
+								}
+							}
+						else{
+							estimatedQuery.setActualRuntime(estimatedTime_M1);
+						}
+						
 					}
 					
 					estimatedQuery.setExpectedRuntime(query.getExpectedRuntime());
 					estimatedWorkload.addQuery(estimatedQuery);
 					
-					if(config == 4 ){ 
-						//System.out.print(" +++ Running on 4 for: " +  estimatedQuery.getActualRuntime() + " ");
+					if(config == 4 && qNum == completedWorkload.size()-1){ 
+						//System.out.print(" +++ Running on 4 for: " +  estimatedQuery.getActualRuntime() + " ++++ ");
 					}
 					
 					//extra info
 					estimatedQuery.setRanOnConfigSize((int) query.getRanOnConfigSize());
-					estimatedQuery.setActualRuntimeOnConfig(query.getActualRuntime());
+					estimatedQuery.setActualRuntimeOnConfig(query.getActualRuntime()); //which could be actual or estimated for other configs
 					estimatedQuery.setSLATime(query.getExpectedRuntime());
 					
 					qNum++;
 				}
 				
 				System.out.print(config + ": ");
-				if (OptimizationFunction.workloadMeetsRequirements(estimatedWorkload, P, config)) {
+				
+				double currentScore = OptimizationFunction.workloadMeetsRequirements(estimatedWorkload, P, config);
+					
+				
+				if(currentScore > bestConfigScore){
+					bestConfigScore = currentScore;
+					bestConfig = config;
+				}
+				
+				if(currentScore >= P){
 					// We have found the smallest suitable cluster
 					queryCount= 0;
 					System.out.println("");
 					return;
 				}
+				
+				if(config == 12) { //last chance, but back track if there was a better score
+					queryCount = 0;
+					scaleTo = bestConfig;
+					System.out.println("");
+					return;
+				}
+				
+				
 				System.out.print(", ");
 			}
 		} else {

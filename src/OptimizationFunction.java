@@ -5,12 +5,12 @@ import DataModel.Workload;
 
 public class OptimizationFunction {		
 	public static double lambda = 0.3;
-	public static double z = .01;
+	public static double z = .1;
 	
-	public static boolean workloadMeetsRequirements(Workload w, double P, Integer config) {
+	public static double workloadMeetsRequirements(Workload w, double P, Integer config) {
 		double movingAverage = getEWMA(w.getQueries(), config, w.getQueries().size() - 1);
 		System.out.printf("%.8f",movingAverage);
-		return (movingAverage >= P);
+		return movingAverage;
 	}
 
 	private static double getEWMA(List<Query> queries, int config, int i) {
